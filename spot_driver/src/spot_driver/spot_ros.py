@@ -35,6 +35,7 @@ from spot_msgs.srv import ListGraph, ListGraphResponse, SetLocomotion, SetLocomo
 
 from .ros_helpers import *
 from .spot_wrapper import SpotWrapper
+from .spot_arm_wrapper import SpotArmWrapper
 
 import actionlib
 import logging
@@ -488,6 +489,7 @@ class SpotROS():
 
         rospy.loginfo("Starting ROS driver for Spot")
         self.spot_wrapper = SpotWrapper(self.username, self.password, self.hostname, self.logger, self.rates, self.callbacks)
+        self.spot_arm_wrapper = SpotArmWrapper(self.username, self.password, self.hostname, self.logger, self.rates, self.callbacks)
 
         if self.spot_wrapper.is_valid:
             # Images #

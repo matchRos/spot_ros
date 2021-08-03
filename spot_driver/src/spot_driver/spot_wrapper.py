@@ -893,7 +893,7 @@ class SpotWrapper():
             while not motors_on:
                 future = self._robot_state_client.get_robot_state_async()
                 state_response = future.result(timeout=10) # 10 second timeout for waiting for the state response.
-                if state_response.power_state.motor_power_state == robot_state_pb2.PowerState.STATE_ON:
+                if state_response.power_state.motor_power_state == robot_state_proto.PowerState.STATE_ON:
                     motors_on = True
                 else:
                     # Motors are not yet fully powered on.
