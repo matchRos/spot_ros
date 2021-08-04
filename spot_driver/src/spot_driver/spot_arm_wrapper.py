@@ -2,7 +2,8 @@
 from bosdyn.client import create_standard_sdk, ResponseError, RpcError
 
 from bosdyn.client.robot_command import RobotCommandBuilder
-
+from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
+from bosdyn.client.estop import EstopClient, EstopEndpoint, EstopKeepAlive
 
 
 class SpotArmWrapper():
@@ -44,17 +45,17 @@ class SpotArmWrapper():
             self._valid = False
             return
 
-        # if self._robot:
+        if self._robot:
         #     # Clients
         #     try:
         #         self._robot_state_client = self._robot.ensure_client(RobotStateClient.default_service_name)
         #         self._robot_command_client = self._robot.ensure_client(RobotCommandClient.default_service_name)
         #         self._graph_nav_client = self._robot.ensure_client(GraphNavClient.default_service_name)
         #         self._power_client = self._robot.ensure_client(PowerClient.default_service_name)
-        #         self._lease_client = self._robot.ensure_client(LeaseClient.default_service_name)
+            self._lease_client = self._robot.ensure_client(LeaseClient.default_service_name)
         #         self._lease_wallet = self._lease_client.lease_wallet
         #         self._image_client = self._robot.ensure_client(ImageClient.default_service_name)
-        #         self._estop_client = self._robot.ensure_client(EstopClient.default_service_name)
+            self._estop_client = self._robot.ensure_client(EstopClient.default_service_name)
         #     except Exception as e:
         #         self._logger.error("Unable to create client service: %s", e)
         #         self._valid = False
@@ -95,3 +96,14 @@ class SpotArmWrapper():
         except (ResponseError, RpcError) as err:
             self._logger.error("Failed to initialize robot communication: %s", err)
             return False, str(err)
+
+    def getLease(self):
+        """Get a lease for the robot and keep the lease alive automatically."""
+        self._lease = self._lease_client.acquire()
+        self._lease_keepalive = LeaseKeepAlive(self._lease_client)
+
+    def resetEStop(self):
+        """Get keepalive for eStop"""
+        self._estop_endpoint = EstopEndpoint(self._estop_client, 'ros', 9.0)
+        self._estop_endpoint.force_simple_setup()  # Set this endpoint as the robot's sole estop.
+        self._estop_keepalive = EstopKeepAlive(self._estop_endpoint)
