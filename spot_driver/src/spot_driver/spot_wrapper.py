@@ -24,8 +24,10 @@ from bosdyn.client.exceptions import InternalServerError
 
 from . import graph_nav_util
 
+from bosdyn.api import arm_command_pb2
 import bosdyn.api.robot_state_pb2 as robot_state_proto
 from bosdyn.api import basic_command_pb2
+from google.protobuf import wrappers_pb2
 from google.protobuf.timestamp_pb2 import Timestamp
 
 front_image_sources = ['frontleft_fisheye_image', 'frontright_fisheye_image', 'frontleft_depth', 'frontright_depth']
@@ -607,6 +609,70 @@ class SpotWrapper():
         ids, eds = self._list_graph_waypoint_and_edge_ids()
         # skip waypoint_ for v2.2.1, skip waypiont for < v2.2
         return [v for k, v in sorted(ids.items(), key=lambda id : int(id[0].replace('waypoint_','')))]
+
+    def stow_arm(self):
+
+        if self._robot.has_arm(): # Robot requires an arm to execute this service
+            return False, "Robot requires an arm to execute this service"
+
+        # verify_estop(self._robot)
+
+        try:
+            self._logger.info("Powering on robot... This may take a several seconds.")
+            self._robot.power_on(timeout_sec=20)
+            assert self._robot.is_powered_on(), "Robot power on failed."
+            self._logger.info("Robot powered on.")
+
+
+            self.stand()
+            self._logger.info("Robot standing.")
+
+            time.sleep(2.0)
+
+            # Stow the arm
+            stow = RobotCommandBuilder.arm_stow_command()
+
+            # Issue the command via the RobotCommandClient
+            self._robot_command_client.robot_command(stow)
+
+            self._logger.info("Stow command issued.")
+            time.sleep(2.0)
+
+        except Exception as e:
+            return False, "Exception occured during arm movement"
+
+        return True, "Stow successfully executed"
+
+    def unstow_arm(self):
+        if self._robot.has_arm(): # Robot requires an arm to execute this service
+            return False, "Robot requires an arm to execute this service"
+
+        # verify_estop(self._robot)
+
+        try:
+            self._logger.info("Powering on robot... This may take a several seconds.")
+            self._robot.power_on(timeout_sec=20)
+            assert self._robot.is_powered_on(), "Robot power on failed."
+            self._logger.info("Robot powered on.")
+
+            self.stand()
+            self._logger.info("Robot standing.")
+
+            time.sleep(2.0)
+
+            # Unstow the arm
+            unstow = RobotCommandBuilder.arm_ready_command()
+
+            # Issue the command via the RobotCommandClient
+            self._robot_command_client.robot_command(unstow)
+
+            self._logger.info("Unstow command issued.")
+            time.sleep(2.0)
+
+        except Exception as e:
+            return False, "Exception occured during arm movement"
+
+        return True, "Stow successfully executed"
 
     def navigate_to(self, upload_path,
                     navigate_to,

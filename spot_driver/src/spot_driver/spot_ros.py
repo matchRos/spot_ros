@@ -35,7 +35,6 @@ from spot_msgs.srv import ListGraph, ListGraphResponse, SetLocomotion, SetLocomo
 
 from .ros_helpers import *
 from .spot_wrapper import SpotWrapper
-from .spot_arm_wrapper import SpotArmWrapper
 
 import actionlib
 import logging
@@ -391,6 +390,11 @@ class SpotROS():
         resp = self.spot_wrapper.list_graph(upload_path)
         return ListGraphResponse(resp)
 
+    def handle_stow_arm(self, srv_data):
+        """ROS service handler for commanding the robot arm to stow (default position)"""
+        resp = self.spot_wrapper.stow_arm()
+        return TriggerResponse(resp[0], resp[1])
+
     def handle_navigate_to_feedback(self):
         """Thread function to send navigate_to feedback"""
         while not rospy.is_shutdown() and self.run_navigate_to:
@@ -489,7 +493,6 @@ class SpotROS():
 
         rospy.loginfo("Starting ROS driver for Spot")
         self.spot_wrapper = SpotWrapper(self.username, self.password, self.hostname, self.logger, self.rates, self.callbacks)
-        self.spot_arm_wrapper = SpotArmWrapper(self.username, self.password, self.hostname, self.logger, self.rates, self.callbacks)
 
         if self.spot_wrapper.is_valid:
             # Images #
@@ -561,6 +564,9 @@ class SpotROS():
 
             rospy.Service("list_graph", ListGraph, self.handle_list_graph)
 
+            # Spot arm services
+            rospy.Service("stow_arm", Trigger, self.handle_stow_arm)
+
             self.navigate_as = actionlib.SimpleActionServer('navigate_to', NavigateToAction,
                                                             execute_cb = self.handle_navigate_to,
                                                             auto_start = False)
@@ -570,6 +576,8 @@ class SpotROS():
                                                                   execute_cb=self.handle_trajectory,
                                                                   auto_start=False)
             self.trajectory_server.start()
+
+
 
             rospy.on_shutdown(self.shutdown)
 
