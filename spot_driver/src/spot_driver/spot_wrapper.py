@@ -1,7 +1,7 @@
 import time
 import math
 
-from bosdyn.client import create_standard_sdk, ResponseError, RpcError
+from bosdyn.client import ResponseError, RpcError
 from bosdyn.client.async_tasks import AsyncPeriodicQuery, AsyncTasks
 from bosdyn.geometry import EulerZXY
 
@@ -16,7 +16,6 @@ from bosdyn.api import image_pb2
 from bosdyn.api.graph_nav import graph_nav_pb2
 from bosdyn.api.graph_nav import map_pb2
 from bosdyn.api.graph_nav import nav_pb2
-from bosdyn.client.estop import EstopClient, EstopEndpoint, EstopKeepAlive
 from bosdyn.client import power
 from bosdyn.client import frame_helpers
 from bosdyn.client import math_helpers
@@ -202,7 +201,8 @@ class AsyncIdle(AsyncPeriodicQuery):
 
 class SpotWrapper():
     """Generic wrapper class to encompass release 1.1.4 API features as well as maintaining leases automatically"""
-    def __init__(self, username, password, hostname, logger, rates = {}, callbacks = {}):
+    def __init__(self, robot, username, password, hostname, logger, rates = {}, callbacks = {}):
+        self._robot = robot
         self._username = username
         self._password = password
         self._hostname = hostname
@@ -234,23 +234,6 @@ class SpotWrapper():
         for source in rear_image_sources:
             self._rear_image_requests.append(build_image_request(source, image_format=image_pb2.Image.FORMAT_RAW))
 
-        try:
-            self._sdk = create_standard_sdk('ros_spot')
-        except Exception as e:
-            self._logger.error("Error creating SDK object: %s", e)
-            self._valid = False
-            return
-
-        self._robot = self._sdk.create_robot(self._hostname)
-
-        try:
-            self._robot.authenticate(self._username, self._password)
-            self._robot.start_time_sync()
-        except RpcError as err:
-            self._logger.error("Failed to communicate with robot: %s", err)
-            self._valid = False
-            return
-
         if self._robot:
             # Clients
             try:
@@ -258,10 +241,7 @@ class SpotWrapper():
                 self._robot_command_client = self._robot.ensure_client(RobotCommandClient.default_service_name)
                 self._graph_nav_client = self._robot.ensure_client(GraphNavClient.default_service_name)
                 self._power_client = self._robot.ensure_client(PowerClient.default_service_name)
-                self._lease_client = self._robot.ensure_client(LeaseClient.default_service_name)
-                self._lease_wallet = self._lease_client.lease_wallet
                 self._image_client = self._robot.ensure_client(ImageClient.default_service_name)
-                self._estop_client = self._robot.ensure_client(EstopClient.default_service_name)
             except Exception as e:
                 self._logger.error("Unable to create client service: %s", e)
                 self._valid = False
@@ -385,85 +365,9 @@ class SpotWrapper():
 
         return rtime
 
-    def claim(self):
-        """Get a lease for the robot, a handle on the estop endpoint, and the ID of the robot."""
-        try:
-            self._robot_id = self._robot.get_id()
-            self.getLease()
-            self.resetEStop()
-            return True, "Success"
-        except (ResponseError, RpcError) as err:
-            self._logger.error("Failed to initialize robot communication: %s", err)
-            return False, str(err)
-
     def updateTasks(self):
         """Loop through all periodic tasks and update their data if needed."""
         self._async_tasks.update()
-
-    def resetEStop(self):
-        """Get keepalive for eStop"""
-        self._estop_endpoint = EstopEndpoint(self._estop_client, 'ros', 9.0)
-        self._estop_endpoint.force_simple_setup()  # Set this endpoint as the robot's sole estop.
-        self._estop_keepalive = EstopKeepAlive(self._estop_endpoint)
-
-    def assertEStop(self, severe=True):
-        """Forces the robot into eStop state.
-
-        Args:
-            severe: Default True - If true, will cut motor power immediately.  If false, will try to settle the robot on the ground first
-        """
-        try:
-            if severe:
-                self._estop_keepalive.stop()
-            else:
-                self._estop_keepalive.settle_then_cut()
-
-            return True, "Success"
-        except:
-            return False, "Error"
-
-    def disengageEStop(self):
-        """Disengages the E-Stop"""
-        try:
-            self._estop_keepalive.allow()
-            return True, "Success"
-        except:
-            return False, "Error"
-
-
-    def releaseEStop(self):
-        """Stop eStop keepalive"""
-        if self._estop_keepalive:
-            self._estop_keepalive.stop()
-            self._estop_keepalive = None
-            self._estop_endpoint = None
-
-    def getLease(self):
-        """Get a lease for the robot and keep the lease alive automatically."""
-        self._lease = self._lease_client.acquire()
-        self._lease_keepalive = LeaseKeepAlive(self._lease_client)
-
-    def releaseLease(self):
-        """Return the lease on the body."""
-        if self._lease:
-            self._lease_client.return_lease(self._lease)
-            self._lease = None
-
-    def release(self):
-        """Return the lease on the body and the eStop handle."""
-        try:
-            self.releaseLease()
-            self.releaseEStop()
-            return True, "Success"
-        except Exception as e:
-            return False, str(e)
-
-    def disconnect(self):
-        """Release control of robot as gracefully as posssible."""
-        if self._robot.time_sync:
-            self._robot.time_sync.stop()
-        self.releaseLease()
-        self.releaseEStop()
 
     def _robot_command(self, command_proto, end_time_secs=None, timesync_endpoint=None):
         """Generic blocking function for sending commands to robots.
