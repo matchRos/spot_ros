@@ -395,6 +395,11 @@ class SpotROS():
         resp = self.spot_wrapper.stow_arm()
         return TriggerResponse(resp[0], resp[1])
 
+    def handle_unstow_arm(self, srv_data):
+        """ROS service handler for commanding the robot arm to unstow (move from default position)"""
+        resp = self.spot_wrapper.unstow_arm()
+        return TriggerResponse(resp[0], resp[1])
+
     def handle_navigate_to_feedback(self):
         """Thread function to send navigate_to feedback"""
         while not rospy.is_shutdown() and self.run_navigate_to:
@@ -566,6 +571,7 @@ class SpotROS():
 
             # Spot arm services
             rospy.Service("stow_arm", Trigger, self.handle_stow_arm)
+            rospy.Service("unstow_arm", Trigger, self.handle_unstow_arm)
 
             self.navigate_as = actionlib.SimpleActionServer('navigate_to', NavigateToAction,
                                                             execute_cb = self.handle_navigate_to,
