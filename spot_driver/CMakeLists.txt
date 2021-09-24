@@ -3,6 +3,7 @@ project(spot_driver)
 
 find_package(catkin REQUIRED COMPONENTS
   rospy
+  spot_msgs
 )
 
 catkin_package()

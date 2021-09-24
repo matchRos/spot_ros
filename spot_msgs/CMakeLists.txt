@@ -39,6 +39,8 @@ add_service_files(
   ListGraph.srv
   SetLocomotion.srv
   ClearBehaviorFault.srv
+  ArmJointMovement.srv
+  ConstrainedArmJointMovement.srv
 )
 
 add_action_files(

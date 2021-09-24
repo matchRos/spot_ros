@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+from typing import List
 import rospy
 
 from std_srvs.srv import Trigger, TriggerResponse, SetBool, SetBoolResponse
@@ -390,16 +393,6 @@ class SpotROS():
         resp = self.spot_wrapper.list_graph(upload_path)
         return ListGraphResponse(resp)
 
-    def handle_stow_arm(self, srv_data):
-        """ROS service handler for commanding the robot arm to stow (default position)"""
-        resp = self.spot_wrapper.stow_arm()
-        return TriggerResponse(resp[0], resp[1])
-
-    def handle_unstow_arm(self, srv_data):
-        """ROS service handler for commanding the robot arm to unstow (move from default position)"""
-        resp = self.spot_wrapper.unstow_arm()
-        return TriggerResponse(resp[0], resp[1])
-
     def handle_navigate_to_feedback(self):
         """Thread function to send navigate_to feedback"""
         while not rospy.is_shutdown() and self.run_navigate_to:
@@ -457,6 +450,21 @@ class SpotROS():
                                                  transform.parent_tform_child)
             self.camera_static_transforms.append(static_tf)
             self.camera_static_transform_broadcaster.sendTransform(self.camera_static_transforms)
+
+    # Arm functionality
+    def handle_stow_arm(self, srv_data):
+        """ROS service handler for commanding the robot arm to stow (default position)"""
+        resp = self.spot_wrapper.stow_arm()
+        return TriggerResponse(resp[0], resp[1])
+
+    def handle_unstow_arm(self, srv_data):
+        """ROS service handler for commanding the robot arm to unstow (move from default position)"""
+        resp = self.spot_wrapper.unstow_arm()
+        return TriggerResponse(resp[0], resp[1])
+    
+    def handle_arm_joint_move(self, srv_data : ArmJointMovement):
+        """ROS service handler for commanding the robot arm to execute a joint movement"""
+        resp = self.spot_wrapper.arm_joint_move()
 
     def shutdown(self):
         rospy.loginfo("Shutting down ROS driver for Spot")
@@ -572,6 +580,7 @@ class SpotROS():
             # Spot arm services
             rospy.Service("stow_arm", Trigger, self.handle_stow_arm)
             rospy.Service("unstow_arm", Trigger, self.handle_unstow_arm)
+            rospy.Service("arm_joint_move", ArmJointMovement, self.handle_arm_joint_move)
 
             self.navigate_as = actionlib.SimpleActionServer('navigate_to', NavigateToAction,
                                                             execute_cb = self.handle_navigate_to,

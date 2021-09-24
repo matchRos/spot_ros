@@ -2,17 +2,18 @@ import time
 import math
 
 from bosdyn.client import create_standard_sdk, ResponseError, RpcError
+from bosdyn.client import robot_command
 from bosdyn.client.async_tasks import AsyncPeriodicQuery, AsyncTasks
 from bosdyn.geometry import EulerZXY
 
 from bosdyn.client.robot_state import RobotStateClient
-from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder
+from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder, blocking_stand
 from bosdyn.client.graph_nav import GraphNavClient
 from bosdyn.client.frame_helpers import get_odom_tform_body
 from bosdyn.client.power import safe_power_off, PowerClient, power_on
 from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
 from bosdyn.client.image import ImageClient, build_image_request
-from bosdyn.api import image_pb2
+from bosdyn.api import estop_pb2, image_pb2
 from bosdyn.api.graph_nav import graph_nav_pb2
 from bosdyn.api.graph_nav import map_pb2
 from bosdyn.api.graph_nav import nav_pb2
@@ -25,8 +26,12 @@ from bosdyn.client.exceptions import InternalServerError
 from . import graph_nav_util
 
 from bosdyn.api import arm_command_pb2
-import bosdyn.api.robot_state_pb2 as robot_state_proto
+# from bosdyn.api.arm_command_pb2 import ArmJointTrajectory
+from bosdyn.api import robot_state_pb2 as robot_state_proto
 from bosdyn.api import basic_command_pb2
+from bosdyn.api import synchronized_command_pb2
+from bosdyn.api import robot_command_pb2
+from bosdyn.api import robot_command_pb2
 from google.protobuf import wrappers_pb2
 from google.protobuf.timestamp_pb2 import Timestamp
 
@@ -622,9 +627,8 @@ class SpotWrapper():
             self._robot.power_on(timeout_sec=20)
             assert self._robot.is_powered_on(), "Robot power on failed."
             self._logger.info("Robot powered on.")
-
-
-            self.stand()
+            robot_command.blocking_stand(command_client=self._robot_command_client,
+                                         timeout_sec=10.0)
             self._logger.info("Robot standing.")
 
             time.sleep(2.0)
@@ -654,8 +658,8 @@ class SpotWrapper():
             self._robot.power_on(timeout_sec=20)
             assert self._robot.is_powered_on(), "Robot power on failed."
             self._logger.info("Robot powered on.")
-
-            self.stand()
+            robot_command.blocking_stand(command_client=self._robot_command_client,
+                                         timeout_sec=10.0)
             self._logger.info("Robot standing.")
 
             time.sleep(2.0)
@@ -673,6 +677,66 @@ class SpotWrapper():
             return False, "Exception occured during arm movement"
 
         return True, "Stow successfully executed"
+
+    def make_robot_command(self, arm_joint_trajectory):
+        # type: (arm_command_pb2.ArmJointTrajectory) -> None
+        """ Helper function to create a RobotCommand from an ArmJointTrajectory. 
+            The returned command will be a SynchronizedCommand with an ArmJointMoveCommand
+            filled out to follow the passed in trajectory. 
+
+            Copy from 'spot-sdk/python/examples/arm_joint_move/arm_joint_move.py' """
+        joint_move_command = arm_command_pb2.ArmJointMoveCommand.Request(trajectory=arm_joint_trajectory)
+        arm_command = arm_command_pb2.ArmCommand.Request(arm_joint_move_command=joint_move_command)
+        sync_arm = synchronized_command_pb2.SynchronizedCommand.Request(arm_command=arm_command)
+        arm_sync_robot_cmd = robot_command_pb2.RobotCommand(synchronized_command=sync_arm)
+        return RobotCommandBuilder.build_synchro_command(arm_sync_robot_cmd)
+
+    def arm_joint_move(self, joint_targets):
+        # Robot requires an arm to execute this service
+        if self._robot.has_arm():
+            return False, "Robot requires an arm to execute this service"
+
+        # Verify the robot is not estopped and that an external application has registered and holds
+        # an estop endpoint
+        if self._estop_client.get_status().stop_level != estop_pb2.ESTOP_LEVEL_NONE:
+            error_message = "Robot is estopped. Please use an external E-Stop client, such as the" \
+            " estop SDK example, to configure E-Stop."
+            self._logger.info(error_message)
+            raise Exception(error_message)
+
+        try:
+            self._logger.info("Powering on robot... This may take a several seconds.")
+            self._robot.power_on(timeout_sec=20)
+            assert self._robot.is_powered_on(), "Robot power on failed."
+            self._logger.info("Robot powered on.")
+
+            if not self._is_standing:
+                self._logger.info("Commanding robot to stand...")
+                robot_command.blocking_stand(command_client=self._robot_command_client,
+                                             timeout_sec=10.0)
+                self._logger.info("Robot standing.")
+            else:
+                self._logger.info("Robot is already standing.")
+
+            trajectory_point = RobotCommandBuilder.create_arm_joint_trajectory_point(
+                joint_targets[0], joint_targets[1], joint_targets[2],
+                joint_targets[3], joint_targets[4], joint_targets[5])
+            arm_joint_trajectory = arm_command_pb2.ArmJointTrajectory(points = [trajectory_point])
+            arm_command = self.make_robot_command(arm_joint_trajectory)
+
+            # Send the request
+            cmd_id = self._robot_command_client.robot_command(arm_command)
+
+            # Query for feedback to determine how long the goto will take.
+            feedback_resp = self._robot_command_client.robot_command_feedback(cmd_id)
+            joint_move_feedback = feedback_resp.feedback.synchronized_feedback.arm_command_feedback.arm_joint_move_feedback
+            time_to_goal = joint_move_feedback.time_to_goal
+            self._logger.info("Robot Arm movement takes: " + str(time_to_goal) + "s")
+            time.sleep(time_to_goal)
+            return True, "Robot Arm moved successfully."
+        
+        except Exception as e:
+            return False, "Exception occured during arm movement"
 
     def navigate_to(self, upload_path,
                     navigate_to,

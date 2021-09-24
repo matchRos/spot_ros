@@ -9,7 +9,7 @@
   <license>BSD</license>
 
   <buildtool_depend>catkin</buildtool_depend>
-  <exec_depend>spot_msgs</exec_depend>
+  <depend>spot_msgs</depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>tf2_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
