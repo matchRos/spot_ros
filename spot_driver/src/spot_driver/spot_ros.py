@@ -35,6 +35,7 @@ from spot_msgs.msg import MobilityParams
 from spot_msgs.msg import NavigateToAction, NavigateToResult, NavigateToFeedback
 from spot_msgs.msg import TrajectoryAction, TrajectoryResult, TrajectoryFeedback
 from spot_msgs.srv import ListGraph, ListGraphResponse, SetLocomotion, SetLocomotionResponse, ClearBehaviorFault, ClearBehaviorFaultResponse
+from spot_msgs.srv import ArmJointMovement, ArmJointMovementResponse, ArmJointMovementRequest
 
 from .ros_helpers import *
 from .spot_wrapper import SpotWrapper
@@ -462,9 +463,10 @@ class SpotROS():
         resp = self.spot_wrapper.unstow_arm()
         return TriggerResponse(resp[0], resp[1])
     
-    def handle_arm_joint_move(self, srv_data : ArmJointMovement):
+    def handle_arm_joint_move(self, srv_data: ArmJointMovementRequest):
         """ROS service handler for commanding the robot arm to execute a joint movement"""
-        resp = self.spot_wrapper.arm_joint_move()
+        resp = self.spot_wrapper.arm_joint_move(joint_targets=srv_data.joint_target)
+        return TriggerResponse(resp[0], resp[1])
 
     def shutdown(self):
         rospy.loginfo("Shutting down ROS driver for Spot")
