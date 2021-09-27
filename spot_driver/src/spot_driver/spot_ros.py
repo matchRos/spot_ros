@@ -466,7 +466,7 @@ class SpotROS():
     def handle_arm_joint_move(self, srv_data: ArmJointMovementRequest):
         """ROS service handler for commanding the robot arm to execute a joint movement"""
         resp = self.spot_wrapper.arm_joint_move(joint_targets=srv_data.joint_target)
-        return TriggerResponse(resp[0], resp[1])
+        return ArmJointMovementResponse(resp[0], resp[1])
 
     def shutdown(self):
         rospy.loginfo("Shutting down ROS driver for Spot")
