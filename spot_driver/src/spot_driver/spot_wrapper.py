@@ -1,6 +1,8 @@
 import time
 import math
 
+import rospy
+
 from bosdyn.client import create_standard_sdk, ResponseError, RpcError
 from bosdyn.client import robot_command
 from bosdyn.client.async_tasks import AsyncPeriodicQuery, AsyncTasks
@@ -33,6 +35,7 @@ from bosdyn.api import synchronized_command_pb2
 from bosdyn.api import robot_command_pb2
 from bosdyn.api import robot_command_pb2
 from google.protobuf import wrappers_pb2
+from google.protobuf.duration_pb2 import Duration
 from google.protobuf.timestamp_pb2 import Timestamp
 
 front_image_sources = ['frontleft_fisheye_image', 'frontright_fisheye_image', 'frontleft_depth', 'frontright_depth']
@@ -718,6 +721,16 @@ class SpotWrapper():
             else:
                 self._logger.info("Robot is already standing.")
 
+            # Debug
+            self._logger.info("target joints: " + str(joint_targets))
+
+            # axis 1: 0.0 arm looks to the front (positiv -> turn left, negative -> turn right) (range: 0.0 -> 5.75959)
+            # axis 2: 0.0 points first part of arm to the front (range: 0.0 -> 3.66519)
+            # axis 3: 0.0 makes the arm in this axis straight (range: 0.0 -> 3.1415)
+            # axis 4: 0.0 is middle position. (range: -2.79253 -> 2.79253)
+            # axis 5: 0.0 makes the hand look straight to the front. (range: -1.8326 -> 1.8326)
+            # axis 6: 0.0 makes the moing jaw be on top of stationary jaw (range: -2.87979 -> 2.87979)
+
             trajectory_point = RobotCommandBuilder.create_arm_joint_trajectory_point(
                 joint_targets[0], joint_targets[1], joint_targets[2],
                 joint_targets[3], joint_targets[4], joint_targets[5])
@@ -727,16 +740,20 @@ class SpotWrapper():
             # Send the request
             cmd_id = self._robot_command_client.robot_command(arm_command)
 
+            self._logger.info("command_executed: " + str(cmd_id))
+
             # Query for feedback to determine how long the goto will take.
             feedback_resp = self._robot_command_client.robot_command_feedback(cmd_id)
             joint_move_feedback = feedback_resp.feedback.synchronized_feedback.arm_command_feedback.arm_joint_move_feedback
-            time_to_goal = joint_move_feedback.time_to_goal
-            self._logger.info("Robot Arm movement takes: " + str(time_to_goal) + "s")
-            time.sleep(time_to_goal)
+            time_to_goal : Duration = joint_move_feedback.time_to_goal
+            self._logger.info("Time in nanos: " + str(time_to_goal.nanos))
+            time_to_goal_in_seconds: float = time_to_goal.seconds + (float(time_to_goal.nanos) / float(10**9))
+            self._logger.info("Robot Arm movement takes: " + str(time_to_goal_in_seconds) + "s")
+            time.sleep(time_to_goal_in_seconds)
             return True, "Robot Arm moved successfully."
         
         except Exception as e:
-            return False, "Exception occured during arm movement"
+            return False, "Exception occured during arm movement: " + str(e)
 
     def navigate_to(self, upload_path,
                     navigate_to,
