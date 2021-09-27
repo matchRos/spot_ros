@@ -693,7 +693,7 @@ class SpotWrapper():
 
     def arm_joint_move(self, joint_targets):
         # Robot requires an arm to execute this service
-        if self._robot.has_arm():
+        if not self._robot.has_arm():
             return False, "Robot requires an arm to execute this service"
 
         # Verify the robot is not estopped and that an external application has registered and holds
