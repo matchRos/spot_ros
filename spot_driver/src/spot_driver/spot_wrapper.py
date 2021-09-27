@@ -617,7 +617,7 @@ class SpotWrapper():
 
     def stow_arm(self):
 
-        if self._robot.has_arm(): # Robot requires an arm to execute this service
+        if not self._robot.has_arm(): # Robot requires an arm to execute this service
             return False, "Robot requires an arm to execute this service"
 
         # verify_estop(self._robot)
@@ -648,7 +648,7 @@ class SpotWrapper():
         return True, "Stow successfully executed"
 
     def unstow_arm(self):
-        if self._robot.has_arm(): # Robot requires an arm to execute this service
+        if not self._robot.has_arm(): # Robot requires an arm to execute this service
             return False, "Robot requires an arm to execute this service"
 
         # verify_estop(self._robot)
