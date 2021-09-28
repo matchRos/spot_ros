@@ -12,7 +12,7 @@ from bosdyn.geometry import EulerZXY
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.robot_command import RobotCommandClient, RobotCommandBuilder, blocking_stand
 from bosdyn.client.graph_nav import GraphNavClient
-from bosdyn.client.frame_helpers import get_odom_tform_body
+from bosdyn.client.frame_helpers import get_odom_tform_body, ODOM_FRAME_NAME
 from bosdyn.client.power import safe_power_off, PowerClient, power_on
 from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
 from bosdyn.client.image import ImageClient, build_image_request
@@ -35,6 +35,9 @@ from bosdyn.api import basic_command_pb2
 from bosdyn.api import synchronized_command_pb2
 from bosdyn.api import robot_command_pb2
 from bosdyn.api import robot_command_pb2
+from bosdyn.api import geometry_pb2
+from bosdyn.api import trajectory_pb2
+from bosdyn.util import seconds_to_duration
 from google.protobuf import wrappers_pb2
 from google.protobuf.duration_pb2 import Duration
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -723,7 +726,7 @@ class SpotWrapper():
                 self._logger.info("Robot is already standing.")
 
             # Debug
-            self._logger.info("target joints: " + str(joint_targets))
+            # self._logger.info("target joints: " + str(joint_targets))
 
             # axis 1: 0.0 arm looks to the front (positiv -> turn left, negative -> turn right) (range: 0.0 -> 5.75959)
             # axis 2: 0.0 points first part of arm to the front (range: 0.0 -> 3.66519)
@@ -741,15 +744,15 @@ class SpotWrapper():
             # Send the request
             cmd_id = self._robot_command_client.robot_command(arm_command)
 
-            self._logger.info("command_executed: " + str(cmd_id))
+            # self._logger.info("command_executed: " + str(cmd_id))
 
             # Query for feedback to determine how long the goto will take.
             feedback_resp = self._robot_command_client.robot_command_feedback(cmd_id)
             joint_move_feedback = feedback_resp.feedback.synchronized_feedback.arm_command_feedback.arm_joint_move_feedback
             time_to_goal : Duration = joint_move_feedback.time_to_goal
-            self._logger.info("Time in nanos: " + str(time_to_goal.nanos))
+            # self._logger.info("Time in nanos: " + str(time_to_goal.nanos))
             time_to_goal_in_seconds: float = time_to_goal.seconds + (float(time_to_goal.nanos) / float(10**9))
-            self._logger.info("Robot Arm movement takes: " + str(time_to_goal_in_seconds) + "s")
+            # self._logger.info("Robot Arm movement takes: " + str(time_to_goal_in_seconds) + "s")
             time.sleep(time_to_goal_in_seconds)
             return True, "Robot Arm moved successfully."
         
@@ -758,7 +761,7 @@ class SpotWrapper():
 
     def force_trajectory(self, forces:List[float], torques:List[float]):
         # Robot requires an arm to execute this service
-        if self._robot.has_arm():
+        if not self._robot.has_arm():
             return False, "Robot requires an arm to execute this service"
 
         # Verify the robot is not estopped and that an external application has registered and holds
@@ -775,9 +778,69 @@ class SpotWrapper():
             assert self._robot.is_powered_on(), "Robot power on failed."
             self._logger.info("Robot powered on.")
 
+            if not self._is_standing:
+                self._logger.info("Commanding robot to stand...")
+                robot_command.blocking_stand(command_client=self._robot_command_client,
+                                                timeout_sec=10.0)
+                self._logger.info("Robot standing.")
+            else:
+                self._logger.info("Robot is already standing.")
+                
+            # Unstow the arm
+            unstow = RobotCommandBuilder.arm_ready_command()
+
+            # Issue the command via the RobotCommandClient
+            self._robot_command_client.robot_command(unstow)
+
+            self._logger.info("Unstow command issued.")
+            time.sleep(2.0)
+
+            # First point on the trajectory
+            force_vector = geometry_pb2.Vec3(x=forces[0], y=forces[1], z=forces[2])
+            torque_vector = geometry_pb2.Vec3(x=forces[0], y=forces[1], z=forces[2])
+            wrench = geometry_pb2.Wrench(force=force_vector, torque=torque_vector)
+            time_since_reference = seconds_to_duration(0)
+
+            traj_point0 = trajectory_pb2.WrenchTrajectoryPoint(wrench=wrench,
+                                                               time_since_reference=time_since_reference)
+            # Build the trajectory
+            trajectory = trajectory_pb2.WrenchTrajectory(points=[traj_point0])
+            
+            # Build the full request, putting all axes into force mode.
+            arm_cartesian_command = arm_command_pb2.ArmCartesianCommand.Request(
+                root_frame_name=ODOM_FRAME_NAME, wrench_trajectory_in_task=trajectory,
+                x_axis=arm_command_pb2.ArmCartesianCommand.Request.AXIS_MODE_FORCE,
+                y_axis=arm_command_pb2.ArmCartesianCommand.Request.AXIS_MODE_FORCE,
+                z_axis=arm_command_pb2.ArmCartesianCommand.Request.AXIS_MODE_FORCE,
+                rx_axis=arm_command_pb2.ArmCartesianCommand.Request.AXIS_MODE_FORCE,
+                ry_axis=arm_command_pb2.ArmCartesianCommand.Request.AXIS_MODE_FORCE,
+                rz_axis=arm_command_pb2.ArmCartesianCommand.Request.AXIS_MODE_FORCE)
+            arm_command = arm_command_pb2.ArmCommand.Request(
+                arm_cartesian_command=arm_cartesian_command)
+            synchronized_command = synchronized_command_pb2.SynchronizedCommand.Request(
+                arm_command=arm_command)
+            robot_command = robot_command_pb2.RobotCommand(
+                synchronized_command=synchronized_command)
+
+            # Send the request
+            self._robot_command_client.robot_command(robot_command)
+            self._logger.info('Force trajectory command issued...')
+
+            time.sleep(10.0)
+
+            # Power the robot off. By specifying "cut_immediately=False", a safe power off command
+            # is issued to the robot. This will attempt to sit the robot before powering off.
+            self._robot.power_off(cut_immediately=False, timeout_sec=20)
+            assert not self._robot.is_powered_on(), "Robot power off failed."
+            self._logger.info("Robot safely powered off.")
+
+
         except Exception as e:
-            return False, "Exception occured during arm movement"
-        
+            return False, "Exception occured during arm movement" + str(e)
+
+        # finally:
+        #     # If we successfully acquired a lease, return it.
+        #     lease_client.return_lease(lease)
 
     def navigate_to(self, upload_path,
                     navigate_to,
