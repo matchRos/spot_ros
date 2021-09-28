@@ -1,5 +1,6 @@
 import time
 import math
+from typing import List
 
 from bosdyn.client import create_standard_sdk, ResponseError, RpcError
 from bosdyn.client import robot_command
@@ -737,6 +738,29 @@ class SpotWrapper():
         
         except Exception as e:
             return False, "Exception occured during arm movement"
+
+    def force_trajectory(self, forces:List[float], torques:List[float]):
+        # Robot requires an arm to execute this service
+        if self._robot.has_arm():
+            return False, "Robot requires an arm to execute this service"
+
+        # Verify the robot is not estopped and that an external application has registered and holds
+        # an estop endpoint
+        if self._estop_client.get_status().stop_level != estop_pb2.ESTOP_LEVEL_NONE:
+            error_message = "Robot is estopped. Please use an external E-Stop client, such as the" \
+            " estop SDK example, to configure E-Stop."
+            self._logger.info(error_message)
+            raise Exception(error_message)
+
+        try:
+            self._logger.info("Powering on robot... This may take a several seconds.")
+            self._robot.power_on(timeout_sec=20)
+            assert self._robot.is_powered_on(), "Robot power on failed."
+            self._logger.info("Robot powered on.")
+
+        except Exception as e:
+            return False, "Exception occured during arm movement"
+        
 
     def navigate_to(self, upload_path,
                     navigate_to,
